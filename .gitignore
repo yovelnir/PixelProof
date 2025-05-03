@@ -57,3 +57,5 @@ frontend/pixelproof/next-env.d.ts
 
 # Editor-specific files
 .vscode/
+*.pdf
+.cursor/
