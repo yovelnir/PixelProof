@@ -19,6 +19,79 @@ body {
   color: #111827;
 }
 
+/* Custom pixel logo effect */
+.pixel-effect::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  background: linear-gradient(
+    45deg,
+    rgba(59, 130, 246, 0.5), /* blue-500 */
+    rgba(99, 102, 241, 0.5), /* indigo-500 */
+    rgba(139, 92, 246, 0.5), /* purple-500 */
+    rgba(59, 130, 246, 0.5) /* blue-500 */
+  );
+  z-index: -1;
+  border-radius: inherit;
+  background-size: 200% 200%;
+  animation: gradientBorder 3s linear infinite;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.pixel-effect:hover::before {
+  opacity: 1;
+}
+
+@keyframes gradientBorder {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 200% 200%;
+  }
+}
+
+/* Custom scanline effect */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanline::after {
+  content: '';
+  position: absolute;
+  top: -100%;
+  left: 0;
+  width: 100%;
+  height: 200%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(122, 149, 255, 0.08) 50%,
+    transparent 100%
+  );
+  animation: scanlineAnimation 4s linear infinite;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.scanline:hover::after {
+  opacity: 1;
+}
+
+@keyframes scanlineAnimation {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
 @layer base {
   h1 {
     @apply text-4xl font-bold mb-4;

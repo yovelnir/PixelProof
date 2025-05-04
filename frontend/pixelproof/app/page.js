@@ -96,22 +96,93 @@ export default function Home() {
   };
 
   return (
-    <main className={`min-h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <main className={`min-h-screen transition-colors duration-500 ${
+      darkMode 
+        ? 'bg-gradient-to-br from-gray-950 via-blue-950 to-gray-950 text-gray-100' 
+        : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-900'
+    } overflow-hidden relative`}>
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className={`absolute top-0 right-0 w-96 h-96 rounded-full ${
+          darkMode ? 'bg-blue-600/15' : 'bg-blue-200/30'
+        } blur-3xl transform -translate-y-32 translate-x-32 animate-pulse-slow`}></div>
+        
+        <div className={`absolute bottom-0 left-0 w-80 h-80 rounded-full ${
+          darkMode ? 'bg-purple-600/15' : 'bg-purple-200/30'
+        } blur-3xl transform translate-y-40 -translate-x-16 animate-pulse-slower`}></div>
+        
+        <div className={`absolute top-1/3 left-1/4 w-72 h-72 rounded-full ${
+          darkMode ? 'bg-cyan-600/15' : 'bg-cyan-200/30'
+        } blur-3xl animate-float`}></div>
+      </div>
+
       {/* Header */}
-      <header className={`${darkMode ? 'bg-gray-800' : 'bg-gray-100'} py-4 px-6 transition-colors duration-300`}>
-        <div className="container mx-auto max-w-5xl flex justify-between items-center">
-          <div className="h-auto w-auto relative transition-opacity">
-            <Image 
-              src={darkMode ? LogoDark : LogoLight} 
-              alt="PixelProof Logo" 
-              className="object-contain"
-              height={70}
-              priority
-            />
+      <header className={`backdrop-blur-md ${
+        darkMode ? 'bg-gray-900/90 border-b border-indigo-500/50' : 'bg-white/30 border-b border-gray-200/50'
+      } py-4 px-6 transition-colors duration-300 sticky top-0 z-10`}>
+        <div className="container mx-auto max-w-6xl flex justify-between items-center">
+          <div className={`relative transition-all duration-300 group p-3 rounded-xl pixel-effect scanline ${
+            darkMode 
+              ? 'bg-indigo-500 border-2 border-blue-300 shadow-lg shadow-blue-500/50' 
+              : 'bg-gradient-to-r from-white/90 via-blue-50/30 to-white/90 border border-indigo-200/30 shadow-md hover:shadow-indigo-300/50'
+          }`}>
+            {/* Permanently visible glow */}
+            <div className={`absolute inset-0 rounded-xl ${
+              darkMode ? 'bg-blue-300/30' : 'animate-glow bg-indigo-200/10'
+            }`}></div>
+            
+            {/* Interactive hover glow effect */}
+            <div className={`absolute inset-0 rounded-xl opacity-30 group-hover:opacity-100 transition-opacity duration-500 ${
+              darkMode ? 'bg-blue-300/40' : 'bg-indigo-100/40'
+            }`}>
+              <div className={`absolute inset-0 rounded-xl ${
+                darkMode 
+                  ? 'bg-gradient-to-tr from-blue-300/30 via-blue-200/40 to-indigo-200/30' 
+                  : 'bg-gradient-to-tr from-blue-100/0 via-indigo-300/20 to-purple-200/0'
+              }`}></div>
+            </div>
+            
+            {/* Logo shine effect */}
+            <div className="absolute inset-0 rounded-xl overflow-hidden">
+              <div className={`absolute h-full w-1/4 translate-y-0 -translate-x-full group-hover:translate-x-[400%] ${
+                darkMode ? 'bg-white/40' : 'bg-indigo-300/20'
+              } blur-md -skew-x-12 transition-transform duration-1500 ease-in-out`}></div>
+            </div>
+            
+            <div className="relative z-10 flex items-center">
+              <div className="flex-shrink-0">
+                <Image 
+                  src={darkMode ? LogoDark : LogoLight} 
+                  alt="PixelProof Logo" 
+                  className="object-contain transform group-hover:scale-105 transition-transform duration-300"
+                  height={65}
+                  priority
+                />
+              </div>
+              <div className="ml-3 flex flex-col">
+                <span className={`font-bold text-lg md:text-xl ${
+                  darkMode 
+                    ? 'text-white drop-shadow-[0_0_3px_rgba(255,255,255,1)]' 
+                    : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-indigo-800'
+                }`}>
+                  PixelProof
+                </span>
+                <span className={`text-xs font-medium tracking-wide ${
+                  darkMode ? 'text-white font-semibold drop-shadow-[0_0_2px_rgba(255,255,255,0.8)]' : 'text-indigo-700/80'
+                }`}>
+                  Deepfake Detection
+                </span>
+              </div>
+            </div>
           </div>
+          
           <button 
             onClick={toggleDarkMode}
-            className={`p-2 rounded-full ${darkMode ? 'bg-gray-700 text-yellow-400' : 'bg-gray-200 text-gray-700'}`}
+            className={`p-3 rounded-full transition-all duration-300 hover:scale-110 ${
+              darkMode 
+                ? 'bg-gray-700 text-yellow-300 hover:bg-gray-600 hover:text-yellow-200 shadow-md shadow-black/20 border border-yellow-400/30' 
+                : 'bg-white/70 text-gray-700 hover:bg-white/90 hover:text-gray-800'
+            } backdrop-blur-sm`}
             aria-label="Toggle dark mode"
           >
             {darkMode ? (
@@ -128,73 +199,103 @@ export default function Home() {
       </header>
 
       {/* Main Content Container */}
-      <div className="container mx-auto max-w-5xl px-4 py-10 min-h-[calc(100vh-88px)]">
+      <div className="container mx-auto max-w-6xl px-4 sm:px-6 py-10 min-h-[calc(100vh-88px)] relative z-0">
         {/* App Title and Description */}
-        <div className="text-center mb-8">
-          <h1 className={`text-3xl md:text-4xl font-bold mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+        <div className="text-center mb-10 max-w-3xl mx-auto animate-fade-in">
+          <h1 className={`text-3xl md:text-5xl font-bold mb-6 ${
+            darkMode 
+              ? 'text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]' 
+              : 'text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-purple-700'
+          }`}>
             Deepfake Detection Tool
           </h1>
-          <p className={`text-lg max-w-2xl mx-auto ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+          <p className={`text-lg md:text-xl max-w-2xl mx-auto ${
+            darkMode ? 'text-blue-100' : 'text-indigo-800'
+          } leading-relaxed`}>
             Upload your image and our AI will determine if it's authentic or a deepfake.
           </p>
         </div>
 
         {/* Main Content Area */}
-        <div className={`rounded-xl shadow-lg overflow-hidden transition-all duration-300 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+        <div className={`rounded-2xl shadow-xl overflow-hidden transition-all duration-300 max-w-4xl mx-auto transform hover:scale-[1.01] ${
+          darkMode 
+            ? 'bg-gray-900/60 backdrop-blur-md border border-indigo-700/30 shadow-blue-900/30' 
+            : 'bg-white/70 backdrop-blur-md border border-gray-200/50 shadow-indigo-200/30'
+        }`}>
           {/* Step Indicator */}
-          <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-100'} py-4 px-6 flex justify-between items-center border-b ${darkMode ? 'border-gray-600' : 'border-gray-200'}`}>
-            <div className="flex items-center space-x-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm ${
+          <div className={`${
+            darkMode 
+              ? 'bg-gradient-to-r from-gray-900/90 to-gray-800/90 border-b border-indigo-700/30' 
+              : 'bg-gradient-to-r from-gray-50/90 to-white/90 border-b border-gray-200/50'
+          } py-5 px-6 flex justify-between items-center`}>
+            <div className="flex items-center space-x-3">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-medium text-sm transition-all ${
                 step === "upload" || step === "analyzing" || step === "results" 
-                  ? darkMode ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white' 
-                  : darkMode ? 'bg-gray-600 text-gray-400' : 'bg-gray-300 text-gray-500'
+                  ? darkMode 
+                      ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-900/40 ring-1 ring-blue-400/30' 
+                      : 'bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/20' 
+                  : darkMode 
+                      ? 'bg-gray-700 text-gray-400' 
+                      : 'bg-gray-300 text-gray-500'
               }`}>
                 1
               </div>
-              <span className={`${darkMode ? 'text-gray-200' : 'text-gray-800'} font-medium`}>Upload</span>
+              <span className={`${darkMode ? 'text-blue-100' : 'text-gray-800'} font-medium hidden sm:inline`}>Upload</span>
             </div>
             
-            <div className={`flex-1 mx-4 h-1 ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
-              <div className={`h-full transition-all duration-500 ${
+            <div className={`flex-1 mx-2 sm:mx-4 h-1 rounded-full ${darkMode ? 'bg-gray-700/80' : 'bg-gray-300/50'} overflow-hidden`}>
+              <div className={`h-full transition-all duration-500 rounded-full ${
                 step === "analyzing" || step === "results" 
-                  ? darkMode ? 'bg-blue-500' : 'bg-blue-600' 
+                  ? darkMode 
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 shadow-glow-blue' 
+                      : 'bg-gradient-to-r from-blue-500 to-indigo-600' 
                   : 'bg-transparent'
               }`} style={{ width: (step === "upload" ? "0%" : "100%") }}></div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm ${
+            <div className="flex items-center space-x-3">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-medium text-sm transition-all ${
                 step === "analyzing" || step === "results" 
-                  ? darkMode ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white' 
-                  : darkMode ? 'bg-gray-600 text-gray-400' : 'bg-gray-300 text-gray-500'
+                  ? darkMode 
+                      ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-900/40 ring-1 ring-indigo-400/30' 
+                      : 'bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-lg shadow-indigo-500/20' 
+                  : darkMode 
+                      ? 'bg-gray-700 text-gray-400' 
+                      : 'bg-gray-300 text-gray-500'
               }`}>
                 2
               </div>
-              <span className={`${darkMode ? 'text-gray-200' : 'text-gray-800'} font-medium`}>Analyze</span>
+              <span className={`${darkMode ? 'text-blue-100' : 'text-gray-800'} font-medium hidden sm:inline`}>Analyze</span>
             </div>
             
-            <div className={`flex-1 mx-4 h-1 ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`}>
-              <div className={`h-full transition-all duration-500 ${
+            <div className={`flex-1 mx-2 sm:mx-4 h-1 rounded-full ${darkMode ? 'bg-gray-700/80' : 'bg-gray-300/50'} overflow-hidden`}>
+              <div className={`h-full transition-all duration-500 rounded-full ${
                 step === "results" 
-                  ? darkMode ? 'bg-blue-500' : 'bg-blue-600' 
+                  ? darkMode 
+                      ? 'bg-gradient-to-r from-indigo-500 to-purple-500 shadow-glow-indigo' 
+                      : 'bg-gradient-to-r from-indigo-500 to-purple-600' 
                   : 'bg-transparent'
               }`} style={{ width: (step === "results" ? "100%" : "0%") }}></div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm ${
+            <div className="flex items-center space-x-3">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-medium text-sm transition-all ${
                 step === "results" 
-                  ? darkMode ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white' 
-                  : darkMode ? 'bg-gray-600 text-gray-400' : 'bg-gray-300 text-gray-500'
+                  ? darkMode 
+                      ? 'bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-900/40 ring-1 ring-purple-400/30' 
+                      : 'bg-gradient-to-br from-purple-500 to-purple-700 text-white shadow-lg shadow-purple-500/20' 
+                  : darkMode 
+                      ? 'bg-gray-700 text-gray-400' 
+                      : 'bg-gray-300 text-gray-500'
               }`}>
                 3
               </div>
-              <span className={`${darkMode ? 'text-gray-200' : 'text-gray-800'} font-medium`}>Results</span>
+              <span className={`${darkMode ? 'text-blue-100' : 'text-gray-800'} font-medium hidden sm:inline`}>Results</span>
             </div>
           </div>
 
           {/* Content Box */}
-          <div className="p-6">
+          <div className="p-6 md:p-8">
             {step === "upload" && (
               <div className="animate-fade-in">
                 <ImageUpload
@@ -208,12 +309,21 @@ export default function Home() {
             {step === "analyzing" && (
               <div className="py-12 animate-fade-in">
                 <div className="text-center">
-                  <div className={`animate-spin rounded-full h-16 w-16 border-4 border-t-transparent ${darkMode ? 'border-blue-400' : 'border-blue-600'} mx-auto mb-6`}></div>
-                  <h3 className={`text-xl font-semibold mb-4 ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>
+                  <div className={`relative mx-auto mb-8 w-20 h-20`}>
+                    <div className={`absolute inset-0 rounded-full ${
+                      darkMode ? 'bg-blue-500/30' : 'bg-blue-100'
+                    } animate-ping-slow opacity-75`}></div>
+                    <div className={`animate-spin rounded-full h-20 w-20 border-4 border-t-transparent relative z-10 ${
+                      darkMode ? 'border-blue-300' : 'border-blue-600'
+                    }`}></div>
+                  </div>
+                  <h3 className={`text-xl md:text-2xl font-semibold mb-4 ${
+                    darkMode ? 'text-blue-100' : 'text-blue-700'
+                  }`}>
                     Analyzing Your Image
                   </h3>
-                  <p className={`mb-6 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Our AI is processing your image to detect potential manipulation.
+                  <p className={`mb-6 max-w-lg mx-auto ${darkMode ? 'text-gray-200' : 'text-gray-600'}`}>
+                    Our AI is processing your image to detect potential manipulation. This might take a moment.
                   </p>
                   {uploadProgress > 0 && (
                     <div className="max-w-md mx-auto">
@@ -235,14 +345,14 @@ export default function Home() {
                   image={currentImage} 
                   darkMode={darkMode} 
                 />
-                <div className="mt-8 text-center">
+                <div className="mt-10 text-center">
                   <button
                     onClick={resetAnalysis}
-                    className={`px-6 py-2 rounded-md ${
+                    className={`px-6 py-3 rounded-xl ${
                       darkMode 
-                        ? 'bg-blue-500 hover:bg-blue-600 text-white' 
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    } transition-colors duration-300`}
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-lg shadow-blue-900/40 ring-1 ring-blue-400/30' 
+                        : 'bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white shadow-lg shadow-blue-500/20'
+                    } transition-all duration-300 transform hover:scale-105 font-medium`}
                   >
                     Analyze Another Image
                   </button>
@@ -251,14 +361,21 @@ export default function Home() {
             )}
           </div>
         </div>
+        
+        {/* Footer credits - subtle at the bottom */}
+        <div className="mt-16 text-center opacity-70 hover:opacity-100 transition-opacity">
+          <p className={`text-xs ${darkMode ? 'text-blue-200' : 'text-blue-800/70'}`}>
+            Powered by advanced AI image analysis technology
+          </p>
+        </div>
       </div>
 
-      {/* Toast Notifications */}
+      {/* Toast notifications */}
       {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
           darkMode={darkMode}
         />
       )}
