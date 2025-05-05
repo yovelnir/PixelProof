@@ -177,6 +177,53 @@ const ResultShowcase = ({ result, image, darkMode = false }) => {
                     {isReal ? 'No significant issues' : 'Multiple suspicious patterns'}
                   </span>
                 </div>
+
+                {details.modelDetails && (
+                  <>
+                    <hr className={`my-3 ${darkMode ? 'border-gray-600' : 'border-gray-200'}`} />
+                    
+                    <h4 className={`font-semibold mb-2 ${
+                      darkMode ? 'text-gray-200' : 'text-gray-700'
+                    }`}>
+                      Model Information
+                    </h4>
+                    
+                    <div className="flex justify-between">
+                      <span className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
+                        AI Probability
+                      </span>
+                      <span className={`font-medium ${
+                        darkMode ? 'text-gray-200' : 'text-gray-800'
+                      }`}>
+                        {(details.modelDetails.probability * 100).toFixed(2)}%
+                      </span>
+                    </div>
+                    
+                    <div className="flex justify-between">
+                      <span className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
+                        Models Used
+                      </span>
+                      <span className={`font-medium ${
+                        darkMode ? 'text-gray-200' : 'text-gray-800'
+                      }`}>
+                        {details.modelDetails.modelsUsed}
+                      </span>
+                    </div>
+                    
+                    {details.modelDetails.voteDistribution !== 'N/A' && (
+                      <div className="flex justify-between">
+                        <span className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
+                          Vote Distribution
+                        </span>
+                        <span className={`font-medium ${
+                          darkMode ? 'text-gray-200' : 'text-gray-800'
+                        }`}>
+                          {details.modelDetails.voteDistribution}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}

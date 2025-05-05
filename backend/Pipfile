@@ -4,21 +4,18 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-flask = "==3.0.2"
-flask-cors = "==4.0.0"
-python-dotenv = "*"
-requests = "*"
-pillow = "==10.2.0"
-numpy = "==1.26.4"
-tensorflow = "==2.15.0"
-werkzeug = "==3.0.1"
-gunicorn = "==21.2.0"
-pytest = "==8.0.0"
-pytest-cov = "==4.1.0"
+flask = "*"
+flask-cors = "*"
+pillow = "*"
+numpy = "*"
+tensorflow = "*"
+werkzeug = "*"
+gunicorn = "*"
+pytest = "*"
+pytest-cov = "*"
+opencv-python = "*"
 
 [dev-packages]
-pytest = "*"
-pytest-flask = "*"
 
 [requires]
-python_version = "3.12"
+python_version = "*"

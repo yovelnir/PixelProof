@@ -8,6 +8,9 @@ import ProgressBar from './components/ProgressBar';
 import LogoDark from './assets/dark-logo.png';
 import LogoLight from './assets/light-logo.png';
 
+// Backend API URL - update this to your actual backend URL
+const API_URL = 'http://localhost:5000';
+
 export default function Home() {
   const [currentImage, setCurrentImage] = useState(null);
   const [result, setResult] = useState(null);
@@ -50,48 +53,66 @@ export default function Home() {
       const formData = new FormData();
       formData.append('image', image);
       
-      // Simulate upload progress
+      // Set up progress tracking
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           if (prev >= 90) {
             clearInterval(progressInterval);
             return 90;
           }
-          return prev + 10;
+          return prev + 5;
         });
-      }, 200);
+      }, 100);
 
-      // Simulate API request with a timeout
-      setTimeout(async () => {
-        clearInterval(progressInterval);
-        setUploadProgress(100);
-        
-        // Mock result - in a real app, this would come from your API
-        const mockResult = {
-          isReal: Math.random() > 0.5, // Randomly determine if image is real or fake
-          confidence: Math.random() * 0.3 + 0.7, // Random confidence between 70% and 100%
-          details: {
-            metadata: {
-              dimensions: `${Math.round(Math.random() * 1000 + 1000)}x${Math.round(Math.random() * 1000 + 1000)}`,
-              format: 'JPEG',
-              size: `${Math.round(Math.random() * 5000 + 500)}KB`
-            },
-            anomalies: Math.round(Math.random() * 10),
-            inconsistencies: Math.round(Math.random() * 5),
-          }
-        };
-        
-        setResult(mockResult);
-        setStep("results");
-        showToast('Image analysis completed successfully!', 'success');
-        setIsLoading(false);
-      }, 3000);
+      // Call the actual backend API
+      const response = await fetch(`${API_URL}/api/analyze`, {
+        method: 'POST',
+        body: formData,
+      });
       
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze image');
+      }
+      
+      const apiResult = await response.json();
+      
+      // Transform API response to match our frontend format
+      const formattedResult = {
+        // Consider both prediction and vote distribution to determine if real
+        isReal: apiResult.prediction === "real" && 
+                (!apiResult.vote_distribution || 
+                 !apiResult.vote_distribution.includes("fake") || 
+                 apiResult.vote_distribution.includes("real")),
+        confidence: apiResult.confidence,
+        details: {
+          metadata: {
+            dimensions: `${image.width || 'unknown'}x${image.height || 'unknown'}`,
+            format: image.type.split('/')[1].toUpperCase(),
+            size: `${Math.round(image.size / 1024)}KB`
+          },
+          anomalies: apiResult.prediction === "real" ? 0 : apiResult.probability * 10, 
+          inconsistencies: apiResult.prediction === "real" ? 0 : Math.round(apiResult.probability * 5),
+          modelDetails: {
+            modelsUsed: apiResult.models_used || 1,
+            voteDistribution: apiResult.vote_distribution || 'N/A',
+            probability: apiResult.probability
+          }
+        }
+      };
+      
+      setResult(formattedResult);
+      setStep("results");
+      showToast('Image analysis completed successfully!', 'success');
     } catch (error) {
       console.error('Error:', error);
       showToast(error.message || 'An error occurred while processing the image', 'error');
-      setIsLoading(false);
       setStep("upload");
+    } finally {
+      setIsLoading(false);
     }
   };
 
