@@ -1,4 +1,4 @@
-# PixelProof - Advanced Deepfake Detection
+ # PixelProof - Advanced Deepfake Detection
 
 PixelProof is a sophisticated web application that uses multiple AI models in an ensemble approach to detect deepfake images with high accuracy. The system features advanced model evaluation, weighted voting, and performance-optimized caching.
 
@@ -246,14 +246,3 @@ The current ensemble achieves the following performance metrics:
 - Use `--serve-only` flag for fastest startup with cached weights
 - Enable GPU acceleration in Docker for better performance
 - Monitor memory usage with multiple large models
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- **TensorFlow/Keras** for the deep learning framework
-- **OpenCV** for image processing capabilities
-- **Next.js** for the modern React framework
-- **Docker** for containerization support 
