@@ -50,6 +50,26 @@ export default function Home() {
     setUploadProgress(0);
 
     try {
+      // Get image dimensions
+      const getImageDimensions = (file) => {
+        return new Promise((resolve) => {
+          const img = new window.Image();
+          img.onload = () => {
+            resolve({
+              width: img.naturalWidth,
+              height: img.naturalHeight
+            });
+            URL.revokeObjectURL(img.src);
+          };
+          img.onerror = () => {
+            resolve({ width: 'unknown', height: 'unknown' });
+          };
+          img.src = URL.createObjectURL(file);
+        });
+      };
+
+      const dimensions = await getImageDimensions(image);
+
       const formData = new FormData();
       formData.append('image', image);
       
@@ -90,7 +110,7 @@ export default function Home() {
         confidence: apiResult.confidence,
         details: {
           metadata: {
-            dimensions: `${image.width || 'unknown'}x${image.height || 'unknown'}`,
+            dimensions: `${dimensions.width}x${dimensions.height}`,
             format: image.type.split('/')[1].toUpperCase(),
             size: `${Math.round(image.size / 1024)}KB`
           },

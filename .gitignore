@@ -59,3 +59,10 @@ frontend/pixelproof/next-env.d.ts
 .vscode/
 *.pdf
 .cursor/
+
+# Test images
+test_images/
+test_images_gw/
+
+# Models
+old_models/

@@ -1,0 +1,18 @@
+{
+  "timestamp": 1751187606.2640135,
+  "timestamp_human": "2025-06-29 09:00:06",
+  "model_weights": {
+    "SRM-CNN-L256 (3new_256_SRM_CNN_model.keras)": 0.2094,
+    "DCT-AE-L256 (256new_best_dct_model.keras)": 0.296,
+    "SRM-CNN-L128 (3new_128_SRM_CNN_model.keras)": 0.2054,
+    "DCT-AE-L128 (128new_best_dct_model.keras)": 0.2892
+  },
+  "total_models": 4,
+  "weight_sum": 1.0,
+  "evaluation_summary": {
+    "ensemble_accuracy": 0.838,
+    "ensemble_f1": 0.85,
+    "ensemble_auc": 0.893,
+    "models_evaluated": 4
+  }
+}

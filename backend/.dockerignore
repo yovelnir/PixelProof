@@ -12,4 +12,5 @@ ENV/
 *.log
 uploads/
 .pytest_cache/
-.coverage 
+.coverage
+old_models/

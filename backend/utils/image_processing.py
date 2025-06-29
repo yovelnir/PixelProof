@@ -63,7 +63,7 @@ def apply_srm_filters_tf(image):
     else:
         input_shape = tf.shape(image).numpy()
     
-    logger.info(f"SRM filter input shape: {input_shape}")
+    # logger.info(f"SRM filter input shape: {input_shape}")
     
     # Convert to tensor if numpy array
     if isinstance(image, np.ndarray):
@@ -90,13 +90,13 @@ def apply_srm_filters_tf(image):
     result_np = result.numpy()
     
     # Log shape after filtering
-    logger.info(f"SRM filter result shape (with batch): {result_np.shape}")
+    # logger.info(f"SRM filter result shape (with batch): {result_np.shape}")
     
     # Remove batch dimension if it wasn't there originally
     if not has_batch_dim:
         result_np = result_np[0]  # Remove batch dimension
     
-    logger.info(f"Final SRM filter result shape: {result_np.shape}")
+    # logger.info(f"Final SRM filter result shape: {result_np.shape}")
     
     return result_np
 
@@ -113,12 +113,12 @@ def load_and_preprocess_image(image_path, target_size=(256, 256)):
     try:
         # Read the image file using PIL (more reliable than TF for various formats)
         with Image.open(image_path) as img:
-            logger.info(f"Loaded image: {image_path}, original size: {img.size}, mode: {img.mode}")
+            # logger.info(f"Loaded image: {image_path}, original size: {img.size}, mode: {img.mode}")
             
             # Convert to RGB mode in case of RGBA or other formats
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-                logger.info(f"Converted image to RGB mode")
+                # logger.info(f"Converted image to RGB mode")
             
             # Resize to target size
             img = img.resize(target_size)
@@ -126,7 +126,7 @@ def load_and_preprocess_image(image_path, target_size=(256, 256)):
             # Convert to numpy array and normalize to [0,1]
             img_array = np.array(img, dtype=np.float32) / 255.0
             
-            logger.info(f"Preprocessed image shape: {img_array.shape}")
+            # logger.info(f"Preprocessed image shape: {img_array.shape}")
             
             return img_array
             
@@ -139,7 +139,7 @@ def load_and_preprocess_image(image_path, target_size=(256, 256)):
         img = tf.cast(img, tf.float32) / 255.0
         
         img_array = img.numpy()
-        logger.info(f"TF preprocessed image shape: {img_array.shape}")
+        # logger.info(f"TF preprocessed image shape: {img_array.shape}")
         
         return img_array
 

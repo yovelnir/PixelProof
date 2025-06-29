@@ -3,6 +3,7 @@ import sys
 import json
 import logging
 import tempfile
+import argparse
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -33,13 +34,18 @@ os.makedirs(MODELS_FOLDER, exist_ok=True)
 # Initialize the model
 model = None
 
-def init_model():
-    """Initialize the model for image analysis."""
+def init_model(use_cache=True, force_evaluation=False):
+    """Initialize the model for image analysis.
+    
+    Args:
+        use_cache (bool): Whether to use cached weights if available
+        force_evaluation (bool): Force model evaluation even if cache exists
+    """
     global model
     
     try:
         logger.info("Initializing models...")
-        model = load_models(MODELS_FOLDER)
+        model = load_models(MODELS_FOLDER, use_cache=use_cache, force_evaluation=force_evaluation)
         
         if model and len(model.models) > 0:
             logger.info(f"Models loaded successfully: {len(model.models)} model(s) available")
@@ -149,10 +155,92 @@ def status():
     logger.info(f"Status check: {status_info}")
     return jsonify(status_info)
 
-# Initialize model when starting
-init_model()
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint."""
+    return jsonify({
+        'message': 'PixelProof Backend API',
+        'status': 'running',
+        'endpoints': {
+            'analyze': '/api/analyze - POST - Upload image for analysis',
+            'status': '/api/status - GET - Check API status'
+        }
+    })
+
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='PixelProof Backend API')
+    parser.add_argument('--evaluate', action='store_true', 
+                       help='Run model evaluation and update weights cache')
+    parser.add_argument('--force-evaluation', action='store_true',
+                       help='Force model evaluation even if cache exists')
+    parser.add_argument('--no-cache', action='store_true',
+                       help='Disable weight caching (always evaluate)')
+    parser.add_argument('--cache-info', action='store_true',
+                       help='Show cache information and exit')
+    parser.add_argument('--clear-cache', action='store_true',
+                       help='Clear weight cache and exit')
+    parser.add_argument('--port', type=int, default=5000,
+                       help='Port to run the server on (default: 5000)')
+    parser.add_argument('--host', default='0.0.0.0',
+                       help='Host to bind the server to (default: 0.0.0.0)')
+    return parser.parse_args()
+
+def main():
+    """Main application entry point."""
+    args = parse_arguments()
+    
+    # Handle cache operations that don't require model loading
+    if args.cache_info:
+        from weight_cache import get_cache_info
+        cache_info = get_cache_info()
+        if cache_info:
+            print("Weight Cache Information:")
+            print(f"  File: {cache_info['cache_file']}")
+            print(f"  Created: {cache_info['timestamp_human']}")
+            print(f"  Age: {cache_info['age_hours']:.1f} hours")
+            print(f"  Models: {cache_info['total_models']}")
+            if cache_info.get('ensemble_accuracy'):
+                print(f"  Ensemble Accuracy: {cache_info['ensemble_accuracy']:.3f}")
+                print(f"  Ensemble F1: {cache_info.get('ensemble_f1', 'N/A'):.3f}")
+                print(f"  Ensemble AUC: {cache_info.get('ensemble_auc', 'N/A'):.3f}")
+        else:
+            print("No weight cache found.")
+        return
+    
+    if args.clear_cache:
+        from weight_cache import clear_cache
+        if clear_cache():
+            print("Weight cache cleared successfully.")
+        else:
+            print("Failed to clear weight cache.")
+        return
+    
+    # Configure model loading options
+    use_cache = not args.no_cache
+    force_evaluation = args.force_evaluation or args.evaluate
+    
+    if args.evaluate and not force_evaluation:
+        # If just --evaluate is specified, force evaluation
+        force_evaluation = True
+    
+    # Initialize model with specified options
+    logger.info(f"Model loading options: use_cache={use_cache}, force_evaluation={force_evaluation}")
+    init_model(use_cache=use_cache, force_evaluation=force_evaluation)
+    
+    # If only evaluation was requested, exit after model loading
+    if args.evaluate and not args.force_evaluation:
+        logger.info("Model evaluation completed. Exiting.")
+        return
+    
+    # Start the Flask server
+    logger.info(f"Starting Flask server on {args.host}:{args.port}...")
+    app.run(debug=False, host=args.host, port=args.port)
+
+# Initialize model when importing (for backward compatibility)
+if __name__ != '__main__':
+    init_model()
 
 # Run the app
 if __name__ == '__main__':
-    logger.info("Starting Flask server...")
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    main() 
