@@ -229,7 +229,7 @@ class EnsembleModel(BaseModel):
             else:
                 weighted_fake_probability = median_fake_probability
             
-            is_fake = weighted_fake_probability > 0.765
+            is_fake = weighted_fake_probability > 0.5
             logger.info(f"🎯 WEIGHTED VOTING: weighted_fake_prob={weighted_fake_probability:.3f}, decision={'FAKE' if is_fake else 'REAL'}")
             if self.debug_mode:
                 logger.info(f"DECISION: Using weighted voting (weighted_fake_prob={weighted_fake_probability:.3f})")

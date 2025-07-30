@@ -1,0 +1,17 @@
+flask
+flask-cors
+pillow
+numpy
+tensorflow>=2.18.0
+keras==3.8.0
+werkzeug
+gunicorn
+pytest
+pytest-cov
+opencv-python
+h5py
+scipy
+scikit-learn
+matplotlib
+pandas
+seaborn

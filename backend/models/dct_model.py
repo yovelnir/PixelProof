@@ -1,312 +1,238 @@
 import os
-import sys
 import numpy as np
 import tensorflow as tf
 from .base_model import BaseModel
-from utils.image_processing import load_and_preprocess_image, extract_dct_features, apply_srm_filters_tf
 import logging
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SRM: pure-TF kernel + apply, to mirror training numerics exactly
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_srm_kernel():
+    # 5 filters, each 5x5, same as your training kernels
+    SRM_FILTERS = np.array([
+        # Filter 1: Laplacian-High Boost
+        [[[0, 0, -1, 0, 0],
+          [0, -1,  2, -1, 0],
+          [-1, 2,  4,  2,-1],
+          [0, -1,  2, -1, 0],
+          [0,  0, -1,  0, 0]]],
+
+        # Filter 2: Edge & Noise Enhancer
+        [[[-1, 2, -2,  2, -1],
+          [ 2,-6,  8, -6,  2],
+          [-2, 8,-12,  8, -2],
+          [ 2,-6,  8, -6,  2],
+          [-1, 2, -2,  2, -1]]],
+
+        # Filter 3: Diagonal Residual Capture
+        [[[ 2, -1, 0, -1,  2],
+          [-1, -2, 3, -2, -1],
+          [ 0,  3, 0,  3,  0],
+          [-1, -2, 3, -2, -1],
+          [ 2, -1, 0, -1,  2]]],
+
+        # Filter 4: Vertical Edge Residuals
+        [[[0, 0, 0, 0, 0],
+          [1,-2, 1,-2, 1],
+          [0, 0, 0, 0, 0],
+          [-1, 2,-1, 2,-1],
+          [0, 0, 0, 0, 0]]],
+
+        # Filter 5: High Frequency Noise Extractor
+        [[[ 1, -4,  6, -4,  1],
+          [ -4, 16,-24, 16, -4],
+          [  6,-24, 36,-24,  6],
+          [ -4, 16,-24, 16, -4],
+          [  1, -4,  6, -4,  1]]],
+    ], dtype=np.float32)
+    # Convert to TF conv2d filter: (kh, kw, in_channels=1, out_channels=5)
+    return tf.constant(np.transpose(SRM_FILTERS, (2, 3, 1, 0)), dtype=tf.float32)
+
+_SRM_K = _build_srm_kernel()
+
+@tf.function
+def _srm_apply_rgb(img_bhwc: tf.Tensor) -> tf.Tensor:
+    """Apply 5 SRM filters to each RGB channel (B,H,W,3) -> (B,H,W,15)"""
+    feats = []
+    for c in tf.split(img_bhwc, 3, axis=-1):
+        feats.append(tf.nn.conv2d(c, _SRM_K, strides=1, padding="SAME"))
+    return tf.concat(feats, axis=-1)
+
+
 class DCTModel(BaseModel):
-    """DCT-based model for deepfake detection.
-    
-    This model follows the EXACT training pipeline from create_dct_dataset function:
-    
-    Training Pipeline (create_dct_dataset):
-    1. img = tf.io.read_file(path)
-    2. img = tf.image.decode_jpeg(img, channels=3)
-    3. img = tf.image.resize(img, [256, 256])
-    4. img = tf.cast(img, tf.float32) / 255.0
-    5. filtered_img = apply_srm_filters_tf(img[tf.newaxis, ...])[0]
-    6. latent = encoder(filtered_img[tf.newaxis, ...], training=False)[0]
-    7. latent_flat = tf.reshape(latent, [-1])
-    8. dct_features = tf.signal.dct(tf.expand_dims(latent_flat, 0), type=2, norm='ortho')[0]
-    9. dct_features = tf.math.l2_normalize(dct_features, axis=0)
-    
-    Model Architecture (build_dct_classifier):
-    - Input: DCT features (normalized)
-    - Dense layers with ReLU, Dropout, BatchNorm
-    - Output: Dense(1, activation='sigmoid') - probability of being REAL
-    - Loss: binary_crossentropy
-    - Labels: 0=fake, 1=real
-    """
-    
+    """DCT-based model for deepfake detection with AE encoder branch."""
+
     def __init__(self, block_size=8, num_coefficients=64, use_encoder=False, latent_size=256, invert_labels=False):
-        """Initialize DCT model for deepfake detection.
-        
-        Args:
-            block_size (int): Size of DCT blocks (typically 8) - kept for compatibility
-            num_coefficients (int): Number of DCT coefficients to keep per block - kept for compatibility
-            use_encoder (bool): Whether to use the autoencoder encoder
-            latent_size (int): Size of the latent representation for the autoencoder
-            invert_labels (bool): Whether to invert labels (for models trained with fake=1, real=0)
-        """
         model_name = f"DCT-B{block_size}-C{num_coefficients}"
         if use_encoder:
             model_name = f"DCT-AE-L{latent_size}"
-            
         super().__init__(model_name=model_name)
+
         self.block_size = block_size
         self.num_coefficients = num_coefficients
-        self.image_size = 256  # Fixed standard size for preprocessing
+        self.image_size = 256
         self.use_encoder = use_encoder
         self.latent_size = latent_size
         self.model = None
         self.encoder = None
-        self.invert_labels = invert_labels  # Flag to handle label inversion
-    
+        self.invert_labels = invert_labels
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Loading
+    # ─────────────────────────────────────────────────────────────────────────
     def load(self, model_path):
-        """Load the DCT model and optionally load the encoder.
-        
-        Args:
-            model_path (str): Path to the model file
-            
-        Returns:
-            bool: True if model loaded successfully, False otherwise
-        """
+        """Load classifier and (optionally) its matching autoencoder encoder."""
         logger.info(f"Loading DCT model from {model_path}")
-        
-        # Check if model file exists
+
         if not os.path.exists(model_path):
             logger.error(f"Error: Model file {model_path} does not exist")
             return False
-        
+
         try:
-            # Load the classification model
             self.model = tf.keras.models.load_model(model_path, compile=False)
-            logger.info("Model loaded successfully. Input shape: {}, Output shape: {}".format(
-                self.model.input_shape, self.model.output_shape))
-            
-            # Extract expected input size from model to determine correct latent size
-            expected_input_size = self.model.input_shape[1]  # Get feature dimension
-            
+            logger.info("Model loaded. Input shape: %s, Output shape: %s",
+                        self.model.input_shape, self.model.output_shape)
+
             if self.use_encoder:
-                # Determine which autoencoder to use based on expected input size
+                expected_input_size = self.model.input_shape[1]
+                # 8*8*128=8192, 8*8*256=16384
                 if expected_input_size == 8192:
-                    # 8192 = 8*8*128, so we need L128 autoencoder
-                    autoencoder_path = os.path.join(os.path.dirname(model_path), "ae", "autoencoder_L128.h5")
-                    if not os.path.exists(autoencoder_path):
-                        autoencoder_path = os.path.join(os.path.dirname(model_path), "ae", "autoencoder_L128.keras")
+                    ae_fname = "autoencoder_L128"
                     self.latent_size = 128
                 elif expected_input_size == 16384:
-                    # 16384 = 8*8*256, so we need L256 autoencoder  
-                    autoencoder_path = os.path.join(os.path.dirname(model_path), "ae", "autoencoder_L256.h5")
-                    if not os.path.exists(autoencoder_path):
-                        autoencoder_path = os.path.join(os.path.dirname(model_path), "ae", "autoencoder_L256.keras")
+                    ae_fname = "autoencoder_L256"
                     self.latent_size = 256
                 else:
-                    logger.error(f"Unexpected input size {expected_input_size}, cannot determine autoencoder")
+                    logger.error(f"Unexpected input size {expected_input_size}, cannot select autoencoder")
                     return False
-                
-                logger.info(f"Using autoencoder from {autoencoder_path} for latent size {self.latent_size}")
-                
-                if not os.path.exists(autoencoder_path):
-                    logger.error(f"Autoencoder file not found: {autoencoder_path}")
+
+                base = os.path.join(os.path.dirname(model_path), "ae")
+                ae_path = os.path.join(base, f"{ae_fname}.h5")
+                if not os.path.exists(ae_path):
+                    ae_path = os.path.join(base, f"{ae_fname}.keras")
+
+                logger.info(f"Using autoencoder from {ae_path} for latent size {self.latent_size}")
+
+                if not os.path.exists(ae_path):
+                    logger.error(f"Autoencoder file not found: {ae_path}")
                     return False
-                
-                # Load autoencoder and extract encoder
-                autoencoder = tf.keras.models.load_model(autoencoder_path, compile=False)
-                
-                # Create encoder model exactly as in training code
+
+                autoencoder = tf.keras.models.load_model(ae_path, compile=False)
                 try:
-                    # Extract encoder exactly as in training: Model(inputs=autoencoder.input, outputs=autoencoder.get_layer('encoder_output').output)
                     self.encoder = tf.keras.models.Model(
-                        inputs=autoencoder.input, 
+                        inputs=autoencoder.input,
                         outputs=autoencoder.get_layer('encoder_output').output
                     )
-                    self.encoder.trainable = False  # Match training code: encoder.trainable = False
+                    self.encoder.trainable = False
                 except Exception as e:
-                    logger.error(f"Failed to extract encoder using 'encoder_output' layer: {str(e)}")
+                    logger.error(f"Failed to extract encoder using 'encoder_output' layer: {e}")
                     return False
-                
-                logger.info(f"Created encoder model with output shape: {self.encoder.output_shape}")
-                logger.info(f"Encoder input shape: {self.encoder.input_shape}, output shape: {self.encoder.output_shape}")
-                
-                # Update model name with correct latent size
-                self.model_name = f"DCT-AE-L{self.latent_size} ({os.path.basename(model_path)})"
-                
-                return True
+
+                logger.info("Encoder ready. In: %s Out: %s", self.encoder.input_shape, self.encoder.output_shape)
+
+            return True
+
         except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
+            logger.error(f"Error loading model: {e}")
             return False
-    
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Preprocess: EXACT training pipeline (TF only)
+    # ─────────────────────────────────────────────────────────────────────────
+    def _tf_load_resize_norm(self, image_path: str) -> tf.Tensor:
+        """(256,256,3) float32 in [0,1], matches training (bilinear, no antialias)."""
+        img = tf.io.read_file(image_path)
+        img = tf.image.decode_jpeg(img, channels=3)
+        img = tf.image.resize(img, (self.image_size, self.image_size),
+                              method=tf.image.ResizeMethod.BILINEAR, antialias=False)
+        img = tf.cast(img, tf.float32) / 255.0
+        return img
+
     def preprocess(self, image_path):
-        """Preprocess image using the EXACT same pipeline as the training code.
-        
-        This follows the exact sequence from create_dct_dataset function:
-        1. Load image with tf.io.read_file
-        2. Decode JPEG with 3 channels
-        3. Resize to [256, 256]
-        4. Cast to float32 and normalize to [0,1]
-        5. Apply SRM filters to get 15 channels
-        6. Pass through encoder
-        7. Flatten latent representation
-        8. Apply DCT with type=2, norm='ortho'
-        9. Apply L2 normalization
-        
-        Args:
-            image_path (str): Path to input image
-            
-        Returns:
-            np.ndarray: Preprocessed DCT features ready for classification
+        """
+        Training-accurate pipeline:
+          - read/decode/resize/normalize in TF
+          - SRM → 15ch (TF conv2d)
+          - encoder (frozen)
+          - flatten
+          - DCT(type=2, norm='ortho')
+          - L2 normalize over features (axis=-1)
+        Returns (1, FLAT_LEN) float32 numpy.
         """
         if self.use_encoder:
             if self.encoder is None:
                 logger.error("Encoder model not loaded!")
                 raise ValueError("Encoder model not loaded")
-            
-            # Step 1-4: Load and preprocess image using image_processing utility
-            img = load_and_preprocess_image(image_path, target_size=(256, 256))
-            
-            # Step 5: Apply SRM filters to get 15 channels using TensorFlow function directly (matches training)
-            filtered_img = apply_srm_filters_tf(img)  # shape: (256, 256, 15)
-            
-            # Step 6: Pass SRM-filtered image into encoder
-            latent = self.encoder(filtered_img[tf.newaxis, ...], training=False)[0]  # shape: (8, 8, latent_size)
-            
-            # Step 7: Flatten latent representation exactly as in training
-            latent_flat = tf.reshape(latent, [-1])  # shape: (flattened_size,)
-            
-            # Step 8: Apply DCT exactly as in training code
-            dct_features = tf.signal.dct(tf.expand_dims(latent_flat, 0), type=2, norm='ortho')[0]
-            
-            # Step 9: Apply L2 normalization exactly as in training code
-            dct_features = tf.math.l2_normalize(dct_features, axis=0)
-            
-            # Convert to numpy and add batch dimension for model prediction
-            features_batch = np.expand_dims(dct_features.numpy(), axis=0)
-            
-            return features_batch
-        else:
-            # For non-encoder models, use original DCT-based pipeline
-            img = load_and_preprocess_image(image_path, target_size=(self.image_size, self.image_size))
-            dct_features = extract_dct_features(
-                img, 
-                block_size=self.block_size,
-                num_coefficients=self.num_coefficients
-            )
-            
-            # Add batch dimension for model compatibility
-            features_batch = np.expand_dims(dct_features, axis=0)
-            
-            return features_batch
-    
+
+            img = self._tf_load_resize_norm(image_path)         # (256,256,3)
+            srm = _srm_apply_rgb(img[None, ...])                # (1,256,256,15)
+            latent = self.encoder(srm, training=False)          # (1,8,8,L)
+            z = tf.reshape(latent, (1, -1))                     # (1, FLAT_LEN)
+            dct = tf.signal.dct(z, type=2, norm='ortho')        # (1, FLAT_LEN)
+            dct = tf.math.l2_normalize(dct, axis=-1)            # <<< correct axis
+            return dct.numpy().astype("float32")
+
+        # If you still need a non-encoder branch, you can implement it here.
+        # Note: it will **not** match the AE-trained classifier pipeline by design.
+        raise NotImplementedError("Non-encoder DCT path intentionally disabled to avoid mismatch with training.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Predict
+    # ─────────────────────────────────────────────────────────────────────────
     def predict(self, processed_features):
-        """Run inference on preprocessed features.
-        
-        Args:
-            processed_features: Preprocessed DCT features
-            
-        Returns:
-            np.ndarray: Raw prediction output
-            
-        Raises:
-            ValueError: If prediction fails or model is not loaded
-        """
+        """Run inference on preprocessed features."""
         if self.model is None:
-            logger.error("Error: Model not loaded!")
             raise ValueError("Model not loaded")
-        
-        try:
-            # logger.info(f"Running prediction with model {self.model_name}")
-            
-            # Get expected input shape from model
-            expected_shape = self.model.input_shape
-            actual_shape = processed_features.shape
-            
-            # logger.info(f"Model expects shape: {expected_shape}, got: {actual_shape}")
-            
-            # Handle shape mismatches if needed
-            if expected_shape[1:] != actual_shape[1:]:
-                logger.warning(f"Shape mismatch. Model expects: {expected_shape}, got: {actual_shape}")
-                # Try to reshape if possible
-                try:
-                    processed_features = processed_features.reshape((-1,) + expected_shape[1:])
-                    # logger.info(f"Reshaped to: {processed_features.shape}")
-                except Exception as reshape_error:
-                    logger.error(f"Failed to reshape: {str(reshape_error)}")
-                    raise ValueError(f"Input shape mismatch: {actual_shape} vs expected {expected_shape}")
-            
-            # Make prediction
-            raw_prediction = self.model.predict(processed_features, verbose=0)
-            # logger.info(f"Raw model prediction: {raw_prediction}")
-            
-            return raw_prediction
-                
-        except Exception as e:
-            logger.error(f"Error during prediction: {str(e)}")
-            raise ValueError(f"Prediction failed: {str(e)}")
-    
+
+        arr = processed_features
+        if isinstance(arr, tf.Tensor):
+            arr = arr.numpy()
+        arr = np.asarray(arr)
+
+        if arr.ndim == 1:
+            arr = arr[None, :]
+
+        expected = self.model.input_shape  # (None, FLAT_LEN)
+        if expected is None or len(expected) < 2:
+            raise ValueError(f"Unexpected model input shape: {expected}")
+
+        exp_feat = expected[1]
+        if arr.shape[1] != exp_feat:
+            raise ValueError(f"Feature dim mismatch: got {arr.shape[1]}, expected {exp_feat}")
+
+        return self.model.predict(arr, verbose=0)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Analyze wrapper
+    # ─────────────────────────────────────────────────────────────────────────
     def analyze(self, image_path):
-        """Analyze an image for deepfake detection using the exact training pipeline.
-        
-        The trained model uses:
-        - binary_crossentropy loss
-        - Single sigmoid output neuron
-        - Labels: 0 = fake, 1 = real
-        - Output: probability of being REAL
-        
-        Args:
-            image_path (str): Path to the image file
-            
-        Returns:
-            dict: Analysis results with probabilities
-            
-        Raises:
-            ValueError: If analysis fails for any reason
-        """
+        """Return {'probability': P(fake), 'prediction': 'real'|'fake', 'confidence': [0,1]}."""
         if self.model is None:
-            logger.error(f"Model {self.model_name} is not loaded!")
             raise ValueError("Model not loaded")
-        
         if self.use_encoder and self.encoder is None:
-            logger.error(f"Model {self.model_name} requires encoder but none is loaded!")
             raise ValueError("Encoder not loaded")
-        
-        try:
-            # Preprocess image using exact training pipeline
-            preprocessed_features = self.preprocess(image_path)
-            
-            # Make prediction
-            raw_prediction = self.predict(preprocessed_features)
-            
-            # Process prediction results - model trained with single sigmoid output
-            if isinstance(raw_prediction, np.ndarray):
-                # The training code uses single sigmoid output: Dense(1, activation='sigmoid')
-                # This outputs the probability of being REAL (label 1) for standard models
-                raw_prob = float(raw_prediction.flatten()[0])
-                
-                # Handle label inversion if needed
-                if self.invert_labels:
-                    # If model was trained with inverted labels (fake=1, real=0)
-                    # then raw output is probability of being FAKE
-                    fake_prob = raw_prob
-                    real_prob = 1.0 - raw_prob
-                else:
-                    # Standard convention: raw output is probability of being REAL
-                    real_prob = raw_prob
-                    fake_prob = 1.0 - raw_prob
-                
-                # Determine prediction based on 0.5 threshold
-                prediction = "real" if real_prob > 0.15 else "fake"
-                
-                # Calculate confidence (distance from 0.5 threshold, scaled to [0,1])
-                confidence = abs(real_prob - 0.5) * 2
-                
-            else:
-                logger.error(f"Unexpected prediction format: {raw_prediction}")
-                raise ValueError(f"Unexpected prediction format: {raw_prediction}")
-            
-            result = {
-                "probability": float(fake_prob),  # Probability of being fake (for consistency with API)
-                "prediction": prediction,
-                "confidence": float(confidence)
-            }
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error during DCT analysis: {str(e)}")
-            raise ValueError(f"Analysis failed: {str(e)}") 
+
+        feats = self.preprocess(image_path)                 # (1, FLAT_LEN)
+        raw = self.predict(feats)                           # (1, 1) sigmoid
+
+        if not isinstance(raw, np.ndarray):
+            raise ValueError(f"Unexpected prediction format: {type(raw)}")
+
+        p_real = float(raw.flatten()[0])                    # trained with 0=fake, 1=real
+        if self.invert_labels:
+            p_fake = p_real
+            p_real = 1.0 - p_real
+        else:
+            p_fake = 1.0 - p_real
+
+        pred = "real" if p_real > 0.5 else "fake"
+        confidence = abs(p_real - 0.5) * 2.0
+
+        return {
+            "probability": float(p_fake),  # publish P(fake) for your API
+            "prediction": pred,
+            "confidence": float(confidence),
+        }

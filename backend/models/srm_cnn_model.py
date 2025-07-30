@@ -3,217 +3,198 @@ import sys
 import numpy as np
 import tensorflow as tf
 from .base_model import BaseModel
-from utils.image_processing import load_and_preprocess_image, apply_srm_filters
 import logging
 
-# Set recursion limit higher
+# Set recursion limit higher (as you had)
 sys.setrecursionlimit(3000)
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SRM: pure‑TF kernel + apply (mirrors training numerics exactly)
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_srm_kernel():
+    # 5 filters, each 5x5, identical to your training kernels
+    SRM_FILTERS = np.array([
+        # Filter 1: Laplacian-High Boost
+        [[[0, 0, -1, 0, 0],
+          [0, -1,  2, -1, 0],
+          [-1, 2,  4,  2,-1],
+          [0, -1,  2, -1, 0],
+          [0,  0, -1,  0, 0]]],
+
+        # Filter 2: Edge & Noise Enhancer
+        [[[-1, 2, -2,  2, -1],
+          [ 2,-6,  8, -6,  2],
+          [-2, 8,-12,  8, -2],
+          [ 2,-6,  8, -6,  2],
+          [-1, 2, -2,  2, -1]]],
+
+        # Filter 3: Diagonal Residual Capture
+        [[[ 2, -1, 0, -1,  2],
+          [-1, -2, 3, -2, -1],
+          [ 0,  3, 0,  3,  0],
+          [-1, -2, 3, -2, -1],
+          [ 2, -1, 0, -1,  2]]],
+
+        # Filter 4: Vertical Edge Residuals
+        [[[0, 0, 0, 0, 0],
+          [1,-2, 1,-2, 1],
+          [0, 0, 0, 0, 0],
+          [-1, 2,-1, 2,-1],
+          [0, 0, 0, 0, 0]]],
+
+        # Filter 5: High Frequency Noise Extractor
+        [[[ 1, -4,  6, -4,  1],
+          [ -4, 16,-24, 16, -4],
+          [  6,-24, 36,-24,  6],
+          [ -4, 16,-24, 16, -4],
+          [  1, -4,  6, -4,  1]]],
+    ], dtype=np.float32)
+    # Convert to TF conv2d filter: (kh, kw, in_channels=1, out_channels=5)
+    return tf.constant(np.transpose(SRM_FILTERS, (2, 3, 1, 0)), dtype=tf.float32)
+
+_SRM_K = _build_srm_kernel()
+
+@tf.function
+def _srm_apply_rgb(img_bhwc: tf.Tensor) -> tf.Tensor:
+    """Apply SRM to RGB: (B,H,W,3) -> (B,H,W,15)."""
+    feats = []
+    for c in tf.split(img_bhwc, 3, axis=-1):
+        feats.append(tf.nn.conv2d(c, _SRM_K, strides=1, padding="SAME"))
+    return tf.concat(feats, axis=-1)
+
+
 class SRMCNNModel(BaseModel):
-    """SRM-CNN model for deepfake detection.
-    
-    This model applies SRM filters to images and feeds them through a CNN.
-    All images are preprocessed to 256x256 regardless of internal representation.
+    """SRM‑CNN model for deepfake detection.
+
+    Inference preprocessing is made identical to training:
+      - tf.io.read_file → tf.image.decode_jpeg(3)
+      - tf.image.resize(256,256) bilinear, antialias=False
+      - float32 / 255.0
+      - SRM (TF conv2d) → 15 channels
+      - Model expects (None, 256, 256, 15)
     """
-    
+
     def __init__(self, latent_size=64, invert_labels=False):
-        """Initialize SRM-CNN model for deepfake detection.
-        
+        """
         Args:
-            latent_size (int): Size of the latent representation, not input size
-            invert_labels (bool): Whether to invert labels (for models trained with fake=1, real=0)
+            latent_size (int): Size of the latent representation (model hyperparam; not an input size).
+            invert_labels (bool): If model trained with fake=1, real=0, set True to invert semantics.
         """
         super().__init__(model_name=f"SRM-CNN-L{latent_size}")
         self.latent_size = latent_size
-        # All images are processed at 256x256 regardless of latent size
         self.image_size = 256
         self.model = None
-        self.invert_labels = invert_labels  # Flag to handle label inversion
-    
+        self.invert_labels = invert_labels
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Load
+    # ─────────────────────────────────────────────────────────────────────────
     def load(self, model_path):
-        """Load a trained model from file.
-        
-        Args:
-            model_path (str): Path to the saved model file
-            
-        Returns:
-            bool: True if model loaded successfully, False otherwise
-        """
+        """Load a trained SRM‑CNN model."""
         logger.info(f"Loading {self.model_name} from {model_path}...")
-        
-        # Check if model file exists
         if not os.path.exists(model_path):
             logger.error(f"Error: Model file {model_path} does not exist")
             return False
-        
         try:
-            # Simple approach with compile=False to avoid custom optimizer issues
             self.model = tf.keras.models.load_model(model_path, compile=False)
             logger.info(f"Successfully loaded model {self.model_name}")
-            
             return True
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
             return False
-    
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Preprocess: EXACT training pipeline (TF only)
+    # ─────────────────────────────────────────────────────────────────────────
+    def _tf_load_resize_norm(self, image_path: str) -> tf.Tensor:
+        """(256,256,3) float32 in [0,1], matches training (bilinear, no antialias)."""
+        img = tf.io.read_file(image_path)
+        img = tf.image.decode_jpeg(img, channels=3)  # match training decoder
+        img = tf.image.resize(img, (self.image_size, self.image_size),
+                              method=tf.image.ResizeMethod.BILINEAR, antialias=False)
+        img = tf.cast(img, tf.float32) / 255.0
+        return img
+
     def preprocess(self, image_path):
-        """Preprocess image for model input.
-        
-        Args:
-            image_path (str): Path to input image
-            
-        Returns:
-            np.ndarray: Preprocessed image ready for model input
-        """
-        # logger.info(f"Preprocessing image {image_path}")
-        
-        # Always preprocess to 256x256 regardless of latent size
-        img = load_and_preprocess_image(image_path, target_size=(self.image_size, self.image_size))
-        
-        # Apply SRM filters to get noise features - this should return shape (256, 256, 15) without batch dimension
-        filtered_img = apply_srm_filters(img)
-        
-        # Log shape and value range to verify proper preprocessing
-        # logger.info(f"Filtered image shape: {filtered_img.shape}, min: {np.min(filtered_img)}, max: {np.max(filtered_img)}")
-        
-        # Explicitly add the batch dimension to match model expectations (None, 256, 256, 15)
-        # 'None' in the model shape means any batch size, so we use 1
-        filtered_img_batch = np.expand_dims(filtered_img, axis=0)
-        
-        # logger.info(f"Final preprocessed tensor shape: {filtered_img_batch.shape}")
-        
-        return filtered_img_batch
-    
+        """Return (1, 256, 256, 15) float32 numpy—exactly what the CNN saw at training."""
+        # Load/resize/normalize in TF to avoid PIL/NumPy drift
+        img = self._tf_load_resize_norm(image_path)   # (256,256,3)
+        # Apply SRM (pure TF); output (1,256,256,15)
+        srm = _srm_apply_rgb(img[None, ...])
+        # Return numpy batch
+        return srm.numpy().astype("float32")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Predict
+    # ─────────────────────────────────────────────────────────────────────────
     def predict(self, processed_image):
-        """Run inference on preprocessed image.
-        
-        Args:
-            processed_image: Preprocessed image tensor
-            
-        Returns:
-            float: Probability of image being REAL (0-1), where 1=Real and 0=Fake
-            
-        Raises:
-            ValueError: If prediction fails or model is not loaded
-        """
+        """Return P(real) in [0,1] from (1,256,256,15)."""
         if self.model is None:
             logger.error("Error: Model not loaded!")
             raise ValueError("Model not loaded")
-        
-        # Make prediction
+
+        arr = processed_image
+        if isinstance(arr, tf.Tensor):
+            arr = arr.numpy()
+        arr = np.asarray(arr)
+
+        if arr.ndim != 4:
+            raise ValueError(f"Expected 4D tensor (B,H,W,C), got shape {arr.shape}")
+
+        # Validate against model input shape (None, 256, 256, 15)
+        expected = self.model.input_shape
+        if expected and len(expected) == 4:
+            _, eh, ew, ec = expected
+            _, ah, aw, ac = arr.shape
+            # Allow None for batch; check spatial and channel dims
+            if (eh is not None and eh != ah) or (ew is not None and ew != aw) or (ec is not None and ec != ac):
+                raise ValueError(f"Input shape mismatch: got {(ah, aw, ac)}, expected {(eh, ew, ec)}")
+
         try:
-            # logger.info(f"Running prediction with model {self.model_name}")
-            # Ensure input shape matches model expectations
-            expected_shape = self.model.input_shape
-            actual_shape = processed_image.shape
-            
-            # logger.info(f"Model expects shape: {expected_shape}, got: {actual_shape}")
-            
-            # Check if shapes match except for batch dimension
-            if len(expected_shape) == 4 and len(actual_shape) == 4:
-                if expected_shape[1:] == actual_shape[1:]:
-                    # Shapes match except for possibly batch dimension
-                    # logger.info("Shape dimensions match except for batch size")
-                    pass
-                else:
-                    # Try to reshape to match expected format
-                    logger.warning(f"Shape mismatch, attempting to reshape: {actual_shape} to match {expected_shape}")
-                    processed_image = processed_image.reshape((-1, expected_shape[1], expected_shape[2], expected_shape[3]))
-                    # logger.info(f"Reshaped to: {processed_image.shape}")
-            
-            # The model is designed to accept 'None' as batch size, which means it can handle any batch size
-            # When TensorFlow shows (None, 256, 256, 15), it means the model accepts any number of samples
-            # Our input is (1, 256, 256, 15) which should be compatible
-            
-            # Use with batch_size=1 explicitly
-            prediction = self.model(processed_image, training=False).numpy()
-            
-            # Log raw prediction value
-            # logger.info(f"Raw prediction: {prediction}")
-            
-            # Ensure we're getting a value between 0 and 1
-            if isinstance(prediction, np.ndarray) and prediction.size > 0:
-                pred_value = float(prediction.flatten()[0])
-            else:
-                logger.error(f"Unexpected prediction format: {prediction}")
-                raise ValueError(f"Unexpected prediction format: {prediction}")
-                
-            # logger.info(f"Prediction value: {pred_value} (1=Real, 0=Fake)")
-            
-            # Handle out-of-range predictions
-            if pred_value < 0 or pred_value > 1:
-                logger.warning(f"Prediction out of range [0,1]: {pred_value}, clamping to range")
-                pred_value = max(0, min(1, pred_value))
-                
-            return pred_value
+            pred = self.model(arr, training=False).numpy()
+            if not isinstance(pred, np.ndarray) or pred.size == 0:
+                raise ValueError(f"Unexpected prediction format: {pred}")
+            p_real = float(pred.flatten()[0])
+            # Clamp if needed
+            if p_real < 0.0 or p_real > 1.0:
+                logger.warning(f"Prediction out of [0,1]: {p_real}, clamping")
+                p_real = max(0.0, min(1.0, p_real))
+            return p_real
         except Exception as e:
             logger.error(f"Error during prediction: {str(e)}")
             raise ValueError(f"Prediction failed: {str(e)}")
-    
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Analyze
+    # ─────────────────────────────────────────────────────────────────────────
     def analyze(self, image_path):
-        """Analyze an image for deepfake detection.
-        
-        Args:
-            image_path (str): Path to the image file
-            
-        Returns:
-            dict: Analysis results with probabilities
-            
-        Raises:
-            ValueError: If analysis fails for any reason
-        """
+        """Returns {'probability': P(fake), 'prediction': 'real'|'fake', 'confidence':[0,1]}."""
         if self.model is None:
             logger.error(f"Model {self.model_name} is not loaded!")
             raise ValueError("Model not loaded")
-        
+
         try:
-            # logger.info(f"Analyzing image with {self.model_name}: {image_path}")
-            
-            # Preprocess image using standardized 256x256 size
-            preprocessed_image = self.preprocess(image_path)
-            
-            # Make prediction with extra error handling
-            try:
-                # Don't assume the output shape - use the more flexible predict method
-                real_prob = self.predict(preprocessed_image)
-                
-                # Log the prediction
-                # logger.info(f"{self.model_name} prediction: {real_prob}")
-            except Exception as pred_error:
-                logger.error(f"Error during prediction: {str(pred_error)}")
-                # Do not return default values - propagate the error
-                raise ValueError(f"Prediction error: {str(pred_error)}")
-            
-            # Handle label inversion if needed
+            x = self.preprocess(image_path)          # (1,256,256,15)
+            p_real = self.predict(x)                 # scalar in [0,1]
+
             if self.invert_labels:
-                # If model was trained with inverted labels (fake=1, real=0)
-                # then raw output is probability of being FAKE
-                fake_probability = real_prob
-                real_probability = 1.0 - real_prob
+                p_fake = p_real
+                p_real = 1.0 - p_real
             else:
-                # Standard convention: raw output is probability of being REAL
-                real_probability = real_prob
-                fake_probability = 1.0 - real_prob
-            
-            # Determine prediction based on 0.5 threshold
-            is_real = real_probability > 0.25
-            prediction = "real" if is_real else "fake"
-            
-            # Calculate confidence (distance from 0.5 threshold, scaled to [0,1])
-            confidence = abs(real_probability - 0.5) * 2
-            
-            result = {
-                "probability": float(fake_probability),  # Probability of being fake (for consistency with API)
-                "prediction": prediction,
-                "confidence": float(confidence)
+                p_fake = 1.0 - p_real
+
+            pred = "real" if p_real > 0.5 else "fake"
+            confidence = abs(p_real - 0.5) * 2.0
+
+            return {
+                "probability": float(p_fake),   # publish P(fake) for API consistency
+                "prediction": pred,
+                "confidence": float(confidence),
             }
-            
-            # logger.info(f"Analysis result: {result}")
-            return result
+
         except Exception as e:
             logger.error(f"Error during analysis: {str(e)}")
-            # Do not return default values - propagate the error
-            raise ValueError(f"Analysis failed: {str(e)}") 
+            raise ValueError(f"Analysis failed: {str(e)}")

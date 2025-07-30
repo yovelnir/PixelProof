@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  jupyter:
+    build: ./
+    container_name: tf-jupyter-gpu
+    ports: ["8888:8888"]
+    volumes:
+      - ./notebooks:/workspace           # notebooks live-edit
+      - ../datasets:/data                 # mounted read-only if you like
+      - ../models:/workspace/models:ro
+    environment:
+      - JUPYTER_TOKEN=dev                # change or omit for no token
+      - TF_FORCE_GPU_ALLOW_GROWTH=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all                 # needs NVIDIA Container Toolkit
+              capabilities: [gpu]
+    shm_size: "16g"                      # avoids dataloader OOM

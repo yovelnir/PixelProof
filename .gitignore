@@ -63,6 +63,11 @@ frontend/pixelproof/next-env.d.ts
 # Test images
 test_images/
 test_images_gw/
+datasets/
 
 # Models
 old_models/
+*.keras
+ae/
+CIFAKE/
+OpenForensics/

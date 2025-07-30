@@ -14,3 +14,6 @@ uploads/
 .pytest_cache/
 .coverage
 old_models/
+datasets/
+/home/sceuser/pixelproof/site/PixelProof/backend/models/OpenForensics
+/home/sceuser/pixelproof/site/PixelProof/backend/models/CIFAKE
